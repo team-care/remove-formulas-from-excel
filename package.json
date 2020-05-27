@@ -1,0 +1,15 @@
+{
+  "name": "remove-formulas-from-excel",
+  "version": "1.0.0",
+  "description": "Remove formulas from Excel file.",
+  "main": "index.js",
+  "scripts": {
+    "test": "pytest -s"
+  },
+  "author": "HigashidaTomoyuki",
+  "license": "ISC",
+  "dependencies": {
+    "serverless-deployment-bucket": "^1.1.2",
+    "serverless-python-requirements": "^5.1.0"
+  }
+}
