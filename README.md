@@ -1,4 +1,6 @@
 # remove-formulas-from-excel
+[![codecov](https://codecov.io/gh/team-care/remove-formulas-from-excel/branch/master/graph/badge.svg)](https://codecov.io/gh/team-care/remove-formulas-from-excel)
+
 Excelファイルから数式を除去する。
 
 
