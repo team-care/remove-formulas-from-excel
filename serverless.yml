@@ -1,0 +1,157 @@
+service: remove-formulas-from-excel
+
+# プロバイダー定義
+provider:
+  name: aws
+  runtime: python3.8
+  stage: ${opt:stage}
+  region: ap-northeast-1
+  stackName: ${opt:stage}-remove-formulas-api-stack
+  apiName: ${opt:stage}-remove-formulas-api
+  versionFunctions: true
+  logRetentionInDays: 90
+  deploymentBucket: 
+    name: ${opt:stage}-remove-formulas-api-deployment
+    serverSideEncryption: AES256
+  apiGateway:
+    binaryMediaTypes:
+      - 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  apiKeys:
+    - name : ${opt:stage}-remove-formulas-api-key
+
+plugins:
+    - serverless-python-requirements
+    - serverless-deployment-bucket
+
+# パッケージ定義
+package:
+  individually: true
+  exclude:
+    - function/**
+
+# カスタム定義
+custom:
+  pythonRequirements:
+    dockerizePip: true
+    dockerEnv:
+      - https_proxy
+  # Lambda Function関連
+  functionName: ${opt:stage}-remove-formulas-from-excel
+  serverlessPath: function
+  customLambdaRole: ${opt:stage}-remove-formulas-from-excel-role
+  customLambdaPolicy: ${opt:stage}-remove-formulas-from-excel-policy
+
+# 関数定義
+functions:
+  # remove-formulas-from-excel Lambda関数定義
+  remove-formulas:
+    name: ${self:custom.functionName}
+    description: "Remove formulas from Excel file."
+    timeout: 30
+    handler: remove_formulas.handler
+    module: ${self:custom.serverlessPath}
+    package:
+      include:
+        - ${self:custom.serverlessPath}/**
+    role: customRole
+    events:
+      - http:
+          path: remove
+          method: post
+          integration: lambda
+          private: true
+          request:
+            passThrough: WHEN_NO_MATCH
+            # カスタムテンプレートの作成
+            template:
+              application/vnd.openxmlformats-officedocument.spreadsheetml.sheet: '{
+                "headers": {
+                  #foreach($param in $input.params().header.keySet())
+                  "$param": "$util.escapeJavaScript($input.params().header.get($param))"
+                  #if($foreach.hasNext),#end
+                  #end
+                },
+                "body": "$input.body"
+              }'
+            parameters:
+              headers:
+                Content-Type: true
+          response:
+            statusCodes:
+              # デフォルトのステータスコード
+              200:
+                pattern: ''
+                template: $input.path('$.body')
+                headers:
+                  Content-Type: "'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'"
+              # カスタムステータスコード
+              400:
+                pattern: '.*"statusCode": 400,.*'
+                template: '{"message": "$util.parseJson($input.path("$.errorMessage")).body.message"}'
+                headers:
+                  Content-Type: "'application/json'"
+              503:
+                pattern: '.*"statusCode": 503,.*'
+                template: '{"message": "$util.parseJson($input.path("$.errorMessage")).body.message"}'
+                headers:
+                  Content-Type: "'application/json'"
+# リソース定義
+resources:
+  - Resources:
+      # remove-formulas-from-excel Lambda用ロール定義
+      customRole:
+        Type: AWS::IAM::Role
+        Properties:
+          AssumeRolePolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ""
+                Effect: Allow
+                Principal:
+                  Service: "lambda.amazonaws.com"
+                Action:
+                  - "sts:AssumeRole"
+          Policies:
+            - PolicyName: ${self:custom.customLambdaPolicy}
+              PolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                  - Effect: Allow
+                    Action:
+                      - "logs:CreateLogGroup"
+                    Resource:
+                      - !Join [ "", [ "arn:aws:logs:", !Ref AWS::Region, ":", !Ref AWS::AccountId, ":*" ] ]
+                  - Effect: Allow
+                    Action:
+                      - "logs:CreateLogStream"
+                      - "logs:PutLogEvents"
+                    Resource:
+                      - !Join [ "", [ "arn:aws:logs:", !Ref AWS::Region, ":", !Ref AWS::AccountId, ":log-group:/aws/lambda/${self:custom.functionName}:log-stream:*" ] ]
+          RoleName: ${self:custom.customLambdaRole}
+      # ゲートウェイのレスポンス定義
+      Default4xxGatewayResponse:
+        Type: 'AWS::ApiGateway::GatewayResponse'
+        Properties:
+          ResponseType: DEFAULT_4XX
+          RestApiId: 
+            Ref: "ApiGatewayRestApi"
+          StatusCode: '400'
+      Default5xxGatewayResponse:
+        Type: 'AWS::ApiGateway::GatewayResponse'
+        Properties:
+          ResponseType: DEFAULT_5XX
+          RestApiId: 
+            Ref: "ApiGatewayRestApi"
+          StatusCode: '500'
+      TimeoutGatewayResponse:
+        Type: 'AWS::ApiGateway::GatewayResponse'
+        Properties:
+          ResponseType: INTEGRATION_TIMEOUT
+          RestApiId: 
+            Ref: "ApiGatewayRestApi"
+          StatusCode: '408'
+      ApiGatewayMethodRemovePost:
+        Type: 'AWS::ApiGateway::Method'
+        Properties:
+          Integration:
+            ContentHandling: CONVERT_TO_TEXT
